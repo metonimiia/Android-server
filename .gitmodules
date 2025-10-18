@@ -1,0 +1,3 @@
+[submodule "GPS_APP"]
+	path = GPS_APP
+	url = https://github.com/metonimiia/GPS_APP.git
