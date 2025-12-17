@@ -3,96 +3,71 @@ import json
 import psycopg2
 from datetime import datetime
 
-conn = psycopg2.connect(
-    dbname="bd_gps_lte",
-    user="postgres",     
-    password="Iaroslav221",
-    host="localhost",
-    port="5432"
-)
+conn = psycopg2.connect(dbname="bd", user="postgres",password="Iaroslav221",host="localhost", port="5432")
 cursor = conn.cursor()
 
-def safe_int(val):
+def safe_int(value):
+    if value is None:
+        return None
     try:
-        return int(val) if val is not None else None
-    except (ValueError, TypeError):
+        return int(value)
+    except:
         return None
 
 def insert_into_db(data):
     try:
         time_str = data.get("Время")
-        time_obj = datetime.strptime(time_str, "%d.%m.%Y %H:%M:%S") if time_str else None
+        time_obj = None
+        if time_str:
+            time_obj = datetime.strptime(time_str, "%d.%m.%Y %H:%M:%S")
         latitude = data.get("Широта", 0.0)
         longitude = data.get("Долгота", 0.0)
         altitude = data.get("Высота", 0.0)
-        speed = data.get("Скорость (м/с)", 0.0)
-        accuracy = data.get("Точность (м)", 0.0)
-
-        lte = data.get("LTE", data)  
-
-        mcc = safe_int(lte.get("MCC"))#
-        mnc = safe_int(lte.get("MNC"))#
-        pci = safe_int(lte.get("PCI"))#
-        tac = safe_int(lte.get("TAC"))
-        earfcn = safe_int(lte.get("EARFCN"))
-        asu = safe_int(lte.get("ASU"))
-        cqi = safe_int(lte.get("CQI"))
-        rsrp = safe_int(lte.get("RSRP"))#
-        rsrq = safe_int(lte.get("RSRQ"))#
-        rssi = safe_int(lte.get("RSSI"))#
-        rssnr = safe_int(lte.get("RSSNR"))#
-        timing_advance = safe_int(lte.get("TimingAdvance"))
-
+        lte = data.get("LTE", {})
+        mcc = safe_int(lte.get("MCC"))
+        mnc = safe_int(lte.get("MNC"))
+        pci = safe_int(lte.get("PCI"))
+        rsrp = safe_int(lte.get("RSRP"))
+        rsrq = safe_int(lte.get("RSRQ"))
+        rssi = safe_int(lte.get("RSSI"))
+        rssnr = safe_int(lte.get("RSSNR"))
         cursor.execute("""
-            INSERT INTO gps_lte_data 
-            (time, latitude, longitude, altitude, speed, accuracy,
-             mcc, mnc, pci, tac, earfcn, asu, cqi, rsrp, rsrq, rssi, rssnr, timing_advance)
-            VALUES (%s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """, (time_obj, latitude, longitude, altitude, speed, accuracy,
-              mcc, mnc, pci, tac, earfcn, asu, cqi, rsrp, rsrq, rssi, rssnr, timing_advance))
+            INSERT INTO data (time, latitude, longitude, altitude,mcc, mnc, pci, rsrp, rsrq, rssi, rssnr)
+            VALUES (%s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s)
+        """, (time_obj, latitude, longitude, altitude, mcc, mnc, pci, rsrp, rsrq, rssi, rssnr))
         conn.commit()
-        print("[DB] Данные добавлены в таблицу")
+        print("[БД] Данные добавлены в базу данных")
+
     except Exception as e:
         conn.rollback()
-        print(f"[DB ERROR] {e}")
-
+        print("[ОШИБКА БД]", e)
 
 def main():
     context = zmq.Context()
     socket = context.socket(zmq.REP)
     socket.bind("tcp://*:2222")
-    print("Сервер ZeroMQ запущен на порту 2222...")
-
+    print("Сервер ZeroMQ сервер запущен на порту 2222")
     while True:
         try:
-            message = socket.recv()
-            decoded_msg = message.decode("utf-8").strip()
-            if decoded_msg.lower() == "stop":
-                socket.send(b"Server stop")
-                break
-
+            message = socket.recv().decode("utf-8")
             try:
-                data = json.loads(decoded_msg)
+                data = json.loads(message)
                 insert_into_db(data)
-                socket.send(json.dumps({"status":"OK","message":"Данные сохранены"}, ensure_ascii=False).encode("utf-8"))
-            except json.JSONDecodeError:
-                socket.send("Ошибка: сообщение не является JSON".encode("utf-8"))
+                answer = {"status": "OK","message": "Данные сохранены в БД"}
+                socket.send(json.dumps(answer, ensure_ascii=False).encode("utf-8"))
 
         except KeyboardInterrupt:
+            print("Сервер остановлен вручную")
             break
+
         except Exception as e:
-            print(f"[SERVER ERROR] {e}")
-            try:
-                socket.send(f"Ошибка сервера: {e}".encode("utf-8"))
-            except:
-                pass
+            print("[ОШИБКА СЕРВЕРА]", e)
+            socket.send("Ошибка сервера".encode("utf-8"))
 
     cursor.close()
     conn.close()
     socket.close()
     context.term()
-    print("Сервер завершил работу.")
 
 if __name__ == "__main__":
     main()
